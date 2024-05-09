@@ -1,7 +1,6 @@
 package cassandra
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/gocql/gocql"
@@ -18,9 +17,10 @@ func New(conf Config, logger Logger, metrics Metrics) *Client {
 	hosts := strings.Split(conf.Get("CASSANDRA_HOSTS"), ",")
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Keyspace = conf.Get("CASSANDRA_KEYSPACE")
+
 	session, err := cluster.CreateSession()
 	if err != nil {
-		logger.Errorf("Error connecting to Cassandra:", err)
+		logger.Errorf("error connecting to cassandra: ", err)
 
 		return nil
 	}
@@ -28,25 +28,14 @@ func New(conf Config, logger Logger, metrics Metrics) *Client {
 	return &Client{Session: session, logger: logger, metrics: metrics}
 }
 
-func (c *Client) Query(iter interface{}, stmt string, values ...interface{}) error {
-	query := c.Session.Query(stmt, values...)
+func (c *Client) Query(stmt string, values ...interface{}) *gocql.Query {
+	return c.Session.Query(stmt, values...)
+}
 
-	switch val := iter.(type) {
-	case *gocql.Iter:
-		val = query.Iter()
-		iter = val
-
-	default:
-		errors.New("invalid type")
-	}
-
-	return nil
+func (c *Client) Iter(stmt string, values ...interface{}) *gocql.Iter {
+	return c.Session.Query(stmt, values...).Iter()
 }
 
 func (c *Client) Exec(stmt string, values ...interface{}) error {
 	return c.Session.Query(stmt, values...).Exec()
-}
-
-func (c *Client) Close() {
-	c.Session.Close()
 }
