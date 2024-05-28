@@ -7,4 +7,6 @@ type Logger interface {
 	Logf(pattern string, args ...interface{})
 	Error(args ...interface{})
 	Errorf(patter string, args ...interface{})
+	Info(args ...interface{})
+	Infof(patter string, args ...interface{})
 }

@@ -10,27 +10,49 @@ import (
 )
 
 type Client struct {
-	*gocql.Session
+	session *gocql.Session
+
+	clusterConfig *gocql.ClusterConfig
 
 	logger  Logger
 	metrics Metrics
 }
 
-func New(conf Config, logger Logger, metrics Metrics) *Client {
+func New(conf Config) *Client {
 	hosts := strings.Split(conf.Get("CASS_DB_HOST"), ",")
-	cluster := gocql.NewCluster(hosts...)
-	cluster.Keyspace = conf.Get("CASS_DB_KEYSPACE")
-	cluster.Port, _ = strconv.Atoi(conf.Get("CASS_DB_PORT"))
-	cluster.Authenticator = gocql.PasswordAuthenticator{Username: conf.Get("CASS_DB_USER"), Password: conf.Get("CASS_DB_PASS")}
+	clusterConfig := gocql.NewCluster(hosts...)
+	clusterConfig.Keyspace = conf.Get("CASS_DB_KEYSPACE")
+	clusterConfig.Port, _ = strconv.Atoi(conf.Get("CASS_DB_PORT"))
+	clusterConfig.Authenticator = gocql.PasswordAuthenticator{Username: conf.Get("CASS_DB_USER"), Password: conf.Get("CASS_DB_PASS")}
 
-	session, err := cluster.CreateSession()
+	return &Client{clusterConfig: clusterConfig}
+}
+
+func (c *Client) Connect() {
+	session, err := c.clusterConfig.CreateSession()
 	if err != nil {
-		logger.Errorf("error connecting to cassandra: ", err)
+		c.logger.Errorf("error connecting to cassandra: ", err)
 
-		return nil
+		return
 	}
 
-	return &Client{Session: session, logger: logger, metrics: metrics}
+	hosts := strings.TrimSuffix(strings.Join(c.clusterConfig.Hosts, ", "), ", ")
+
+	c.logger.Info("connected to '%s' keyspace at host '%s' and port '%s'", c.clusterConfig.Keyspace, hosts, c.clusterConfig.Port)
+
+	c.session = session
+}
+
+func (c *Client) UseLogger(logger interface{}) {
+	if l, ok := logger.(Logger); ok {
+		c.logger = l
+	}
+}
+
+func (c *Client) UseMetrics(metrics interface{}) {
+	if m, ok := metrics.(Metrics); ok {
+		c.metrics = m
+	}
 }
 
 func (c *Client) Query(dest interface{}, stmt string, values ...interface{}) error {
@@ -42,7 +64,7 @@ func (c *Client) Query(dest interface{}, stmt string, values ...interface{}) err
 	}
 
 	rv := rvo.Elem()
-	iter := c.Session.Query(stmt, values...).Iter()
+	iter := c.session.Query(stmt, values...).Iter()
 
 	switch rv.Kind() {
 	case reflect.Slice:
@@ -79,7 +101,7 @@ func (c *Client) Query(dest interface{}, stmt string, values ...interface{}) err
 }
 
 func (c *Client) Exec(stmt string, values ...interface{}) error {
-	return c.Session.Query(stmt, values...).Exec()
+	return c.session.Query(stmt, values...).Exec()
 }
 
 func (c *Client) QueryCAS(dest interface{}, stmt string, values ...interface{}) (bool, error) {
@@ -96,7 +118,7 @@ func (c *Client) QueryCAS(dest interface{}, stmt string, values ...interface{}) 
 	}
 
 	rv := rvo.Elem()
-	query := c.Session.Query(stmt, values...)
+	query := c.session.Query(stmt, values...)
 
 	switch rv.Kind() {
 	case reflect.Struct:
